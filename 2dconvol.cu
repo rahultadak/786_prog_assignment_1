@@ -3,15 +3,22 @@
 
 #define DEBUG
 
-__global__ void conv(void)
+__global__ void convol2D (float *a, float *h, float *c)
 {
+    int index_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int index_y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    int index = index_y * gridDim.x * blockDim.x + index_x;
+
+    c[index] = index;
 }
 
+        
 int main (int argc, char *argv[])
 {
     if(argc != 2)
     {
-        fprintf(stderr,"Incorrect arguments passed.\nUse \"/conv.o <input_file>\"\n");
+        fprintf(stderr,"Incorrect arguments passed.\nUse \"./2dconvol.o <input_file>\"\n");
         exit(1);
     }
 
@@ -36,6 +43,9 @@ int main (int argc, char *argv[])
     size_t a_size = 0;
     size_t h_size = 0;
     size_t c_size = 0;
+
+    dim3 block_size;
+    dim3 grid_size;
 
     int i=0,j=0;
 
@@ -83,12 +93,19 @@ int main (int argc, char *argv[])
 
     //Calculating op dimensions
     c_rows = a_rows + h_rows - 1;
+    block_size.y = c_rows > 512 ? 512 : c_rows;
     c_cols = a_cols + h_cols - 1;
+    block_size.x = c_cols > 512 ? 512 : c_cols;
+
+    grid_size.y = (c_rows/512)+1;
+    grid_size.x = (c_cols/512)+1;
 
     #ifdef DEBUG
         printf("Size of A: %dx%d\n",a_rows,a_cols);
         printf("Size of H: %dx%d\n",h_rows,h_cols);
         printf("Size of C: %dx%d\n",c_rows,c_cols);
+        printf("Size of grid: %dx%d\n",grid_size.y,grid_size.x);
+        printf("Size of block: %dx%d\n",block_size.y,block_size.x);
     #endif
 
     //Calculating the sizes of all the involved matrices
@@ -148,6 +165,25 @@ int main (int argc, char *argv[])
 
     //Setting Op matrix to all zeros
     cudaMemset(c_d,0,c_size);
+
+    //Convolution function
+    convol2D<<<grid_size,block_size>>>(a_d,hinv_d,c_d);
+
+    //Synchronize to wait for the kernel to complete exectution
+    cudaThreadSynchronize();
+
+    //Copy the output matrix from the Device to host
+    cudaMemcpy(c_h,c_d,c_size,cudaMemcpyDeviceToHost);
+
+    //Print Output
+    for(i=0;i<c_rows;i++)
+    {
+        for(j=0;j<c_cols;j++)
+        {
+            printf("%f ",c_h[i*c_cols + j]);
+        }
+        printf("\n");
+    }
 
     //Freeing all the allocated memory from the device
     cudaFree(a_d);
